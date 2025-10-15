@@ -1,0 +1,34 @@
+{
+  "mcpServers": {
+    "websearch": {
+      "command": "./websearch-mcp",
+      "args": [],
+      "env": {
+        "PORT": "8080"
+      }
+    },
+    "websearch-backup": {
+      "command": "./websearch-mcp",
+      "args": [],
+      "env": {
+        "PORT": "8081"
+      }
+    },
+    "git-integration": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-git",
+        "/path/to/your/git/repository"
+      ],
+      "env": {}
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": [
+        "@modelcontextprotocol/server-filesystem",
+        "/path/to/allowed/directory"
+      ],
+      "env": {}
+    }
+  }
+}
