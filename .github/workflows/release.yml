@@ -11,8 +11,44 @@ permissions:
 
 jobs:
   build-and-release:
-    name: Build and Package
-    runs-on: ubuntu-latest
+    name: Build for ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          # macOS builds
+          - os: macos-latest
+            platform: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            ext: ''
+          - os: macos-latest
+            platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            ext: ''
+          # Windows builds
+          - os: windows-latest
+            platform: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: '.exe'
+          - os: windows-latest
+            platform: windows-arm64
+            goos: windows
+            goarch: arm64
+            ext: '.exe'
+          # Linux builds
+          - os: ubuntu-latest
+            platform: linux-amd64
+            goos: linux
+            goarch: amd64
+            ext: ''
+          - os: ubuntu-latest
+            platform: linux-arm64
+            goos: linux
+            goarch: arm64
+            ext: ''
 
     steps:
     - name: Checkout code
@@ -27,29 +63,65 @@ jobs:
 
     - name: Get version
       id: version
-      run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      shell: bash
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+        echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_OUTPUT
 
     - name: Build binary
       env:
         VERSION: ${{ steps.version.outputs.VERSION }}
+        BUILD_TIME: ${{ steps.version.outputs.BUILD_TIME }}
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      shell: bash
       run: |
-        # Build single optimized binary with version information
+        # Build optimized binary with version information
         CGO_ENABLED=0 go build \
-          -ldflags="-w -s -X main.version=${{ steps.version.outputs.VERSION }} -X main.buildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ) -X main.gitCommit=${{ github.sha }}" \
-          -o websearch-mcp \
+          -ldflags="-w -s -X main.version=${{ steps.version.outputs.VERSION }} -X main.buildTime=${{ steps.version.outputs.BUILD_TIME }} -X main.gitCommit=${{ github.sha }}" \
+          -a -installsuffix cgo \
+          -o websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} \
           .
+        
+        # Show binary info
+        ls -lh websearch-mcp-${{ matrix.platform }}${{ matrix.ext }}
 
-    - name: Create archive
+    - name: Create archive (Unix)
+      if: matrix.goos != 'windows'
+      shell: bash
       run: |
-        tar -czf websearch-mcp-${{ steps.version.outputs.VERSION }}.tar.gz \
-          websearch-mcp \
+        tar -czf websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.tar.gz \
+          websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} \
           README.md
+        
+        # Create checksum
+        if command -v sha256sum > /dev/null; then
+          sha256sum websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.tar.gz > checksums.txt
+        else
+          shasum -a 256 websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.tar.gz > checksums.txt
+        fi
+
+    - name: Create archive (Windows)
+      if: matrix.goos == 'windows'
+      shell: bash
+      run: |
+        # Create zip archive for Windows
+        7z a -tzip websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.zip \
+          websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} \
+          README.md
+        
+        # Create checksum
+        sha256sum websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.zip > checksums.txt
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: release-artifacts
-        path: "*.tar.gz"
+        name: release-artifacts-${{ matrix.platform }}
+        path: |
+          websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.*
+          checksums.txt
 
   create-release:
     name: Create GitHub Release
@@ -66,16 +138,22 @@ jobs:
       id: version
       run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-    - name: Download artifact
+    - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
-        name: release-artifacts
         path: ./artifacts
 
     - name: Prepare release assets
       run: |
         mkdir -p release-assets
-        cp ./artifacts/*.tar.gz release-assets/
+        # Move all archives and checksums to release-assets
+        find ./artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+        find ./artifacts -name "*.zip" -exec cp {} release-assets/ \;
+        
+        # Combine all checksums into a single file
+        find ./artifacts -name "checksums.txt" -exec cat {} \; > release-assets/checksums.txt
+        
+        ls -lh release-assets/
 
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -87,16 +165,104 @@ jobs:
 
           A Model Context Protocol (MCP) server that provides web search capabilities using DuckDuckGo.
 
-          ## Quick Start
+          ## Supported Platforms
 
-          1. Download the binary from the Assets section below
-          2. Make it executable (chmod +x ./websearch-mcp)
-          3. Create a `.mcp_servers` configuration file
-          4. Start using with your MCP client!
+          This release includes pre-built binaries for multiple platforms and architectures:
+
+          ### macOS
+          - **Intel (x86_64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-amd64.tar.gz`
+          - **Apple Silicon (ARM64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-arm64.tar.gz`
+
+          ### Windows
+          - **Intel (x86_64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-windows-amd64.zip`
+          - **ARM64**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-windows-arm64.zip`
+
+          ### Linux
+          - **Intel (x86_64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz`
+          - **ARM64**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz`
+
+          ## Installation
+
+          ### macOS / Linux
+
+          1. Download the appropriate archive for your platform from the Assets section below
+          2. Extract the archive:
+             ```bash
+             # For macOS Apple Silicon (M1/M2/M3)
+             tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-arm64.tar.gz
+             
+             # For macOS Intel
+             tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-amd64.tar.gz
+             
+             # For Linux ARM64
+             tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz
+             
+             # For Linux x86_64
+             tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
+             ```
+          3. Make it executable:
+             ```bash
+             chmod +x websearch-mcp-*
+             ```
+          4. Run the server:
+             ```bash
+             ./websearch-mcp-darwin-arm64  # Or your platform's binary
+             ```
+
+          ### Windows
+
+          1. Download the appropriate zip file for your platform from the Assets section below
+          2. Extract the zip file
+          3. Run from PowerShell or Command Prompt:
+             ```powershell
+             # For Intel/AMD64
+             .\websearch-mcp-windows-amd64.exe
+             
+             # For ARM64
+             .\websearch-mcp-windows-arm64.exe
+             ```
+
+          ## Quick Start with Tabnine
+
+          Create a `.mcp_servers` file in your project root:
+
+          ```json
+          {
+            "mcpServers": {
+              "websearch": {
+                "command": "./websearch-mcp-darwin-arm64",
+                "args": [],
+                "env": {
+                  "PORT": "8080"
+                }
+              }
+            }
+          }
+          ```
+
+          **Note:** Update the `command` path to match your platform's binary name.
+
+          ## Verification
+
+          Verify your download using the checksums provided in `checksums.txt`:
+
+          ```bash
+          # macOS / Linux
+          sha256sum -c checksums.txt
+
+          # Windows (PowerShell)
+          Get-FileHash websearch-mcp-*.exe -Algorithm SHA256
+          ```
 
           ## Documentation
 
-          See the README.md for full setup and usage instructions.
+          See the [README.md](https://github.com/${{ github.repository }}/blob/main/README.md) for full setup and usage instructions.
+
+          For Tabnine integration, see [TABNINE_SETUP.md](https://github.com/${{ github.repository }}/blob/main/docs/TABNINE_SETUP.md).
+
+          ## What's Changed
+
+          See the full changelog in [CHANGES.md](https://github.com/${{ github.repository }}/blob/main/docs/CHANGES.md).
         files: release-assets/*
         draft: false
         prerelease: false

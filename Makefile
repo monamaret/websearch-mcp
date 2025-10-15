@@ -35,17 +35,21 @@ build-all-platforms: clean
 	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-linux-arm64 .
 	tar -czf dist/$(BINARY_NAME)-$(VERSION)-linux-arm64.tar.gz -C dist $(BINARY_NAME)-linux-arm64 -C .. README.md
 	
-	@echo "Building for macOS (amd64)..."
+	@echo "Building for macOS (Intel/amd64)..."
 	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-darwin-amd64 .
 	tar -czf dist/$(BINARY_NAME)-$(VERSION)-darwin-amd64.tar.gz -C dist $(BINARY_NAME)-darwin-amd64 -C .. README.md
 	
-	@echo "Building for macOS (arm64/Apple Silicon)..."
+	@echo "Building for macOS (Apple Silicon/arm64)..."
 	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-darwin-arm64 .
 	tar -czf dist/$(BINARY_NAME)-$(VERSION)-darwin-arm64.tar.gz -C dist $(BINARY_NAME)-darwin-arm64 -C .. README.md
 	
-	@echo "Building for Windows (amd64)..."
+	@echo "Building for Windows (Intel/amd64)..."
 	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-windows-amd64.exe .
 	cd dist && zip $(BINARY_NAME)-$(VERSION)-windows-amd64.zip $(BINARY_NAME)-windows-amd64.exe ../README.md
+	
+	@echo "Building for Windows (ARM64)..."
+	GOOS=windows GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-windows-arm64.exe .
+	cd dist && zip $(BINARY_NAME)-$(VERSION)-windows-arm64.zip $(BINARY_NAME)-windows-arm64.exe ../README.md
 	
 	@echo "Generating checksums..."
 	cd dist && sha256sum *.tar.gz *.zip > checksums.txt 2>/dev/null || shasum -a 256 *.tar.gz *.zip > checksums.txt
@@ -150,9 +154,12 @@ version:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build                - Build the server binary (single host)"
+	@echo "  build                - Build the server binary for current platform"
 	@echo "  build-release        - Build optimized release binary"
-	@echo "  build-all-platforms  - Build binaries for all supported platforms"
+	@echo "  build-all-platforms  - Build binaries for all supported platforms (6 total)"
+	@echo "                         macOS: Intel (amd64), Apple Silicon (arm64)"
+	@echo "                         Windows: Intel (amd64), ARM64"
+	@echo "                         Linux: Intel (amd64), ARM64"
 	@echo "  run                  - Run the server directly"
 	@echo "  clean                - Clean build artifacts"
 	@echo "  deps                 - Download and tidy dependencies"
@@ -168,5 +175,11 @@ help:
 	@echo "  setup-tabnine        - Interactive setup for Tabnine MCP integration"
 	@echo "  validate-tabnine     - Validate Tabnine MCP configuration"
 	@echo "  tabnine-demo         - Start server and show integration demo"
+	@echo ""
+	@echo "Documentation:"
+	@echo "  See docs/BUILDING.md for detailed build instructions"
+	@echo "  See docs/PLATFORM_SUPPORT.md for platform compatibility"
+	@echo "  See docs/RELEASE_GUIDE.md for release process"
+	@echo "  See docs/WORKFLOWS.md for CI/CD information"
 	@echo ""
 	@echo "  help                 - Show this help message"

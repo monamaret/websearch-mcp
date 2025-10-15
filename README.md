@@ -12,15 +12,91 @@ A Model Context Protocol (MCP) server implementation in Go that provides web sea
 - Clean Response Format: Structured search results with titles, URLs, and descriptions
 - Performance Monitoring: Built-in health checks and statistics
 - Lightweight Binary: Single portable Go binary
+- **Multi-Platform Support**: Pre-built binaries for macOS (Intel & Apple Silicon), Windows (Intel & ARM), and Linux (Intel & ARM)
+
+## 🚀 Quick Start
+
+### Download Pre-built Binary
+
+Download the appropriate binary for your platform from the [latest release](https://github.com/yourusername/websearch-mcp/releases/latest):
+
+#### macOS
+```bash
+# Apple Silicon (M1/M2/M3)
+curl -LO https://github.com/youruser/websearch-mcp/releases/latest/download/websearch-mcp-VERSION-darwin-arm64.tar.gz
+tar -xzf websearch-mcp-VERSION-darwin-arm64.tar.gz
+chmod +x websearch-mcp-darwin-arm64
+./websearch-mcp-darwin-arm64
+
+# Intel
+curl -LO https://github.com/youruser/websearch-mcp/releases/latest/download/websearch-mcp-VERSION-darwin-amd64.tar.gz
+tar -xzf websearch-mcp-VERSION-darwin-amd64.tar.gz
+chmod +x websearch-mcp-darwin-amd64
+./websearch-mcp-darwin-amd64
+```
+
+#### Windows
+```powershell
+# Download from releases page and extract, then:
+
+# Intel/AMD64
+.\websearch-mcp-windows-amd64.exe
+
+# ARM64
+.\websearch-mcp-windows-arm64.exe
+```
+
+#### Linux
+```bash
+# Intel/AMD64
+wget https://github.com/youruser/websearch-mcp/releases/latest/download/websearch-mcp-VERSION-linux-amd64.tar.gz
+tar -xzf websearch-mcp-VERSION-linux-amd64.tar.gz
+chmod +x websearch-mcp-linux-amd64
+./websearch-mcp-linux-amd64
+
+# ARM64
+wget https://github.com/youruser/websearch-mcp/releases/latest/download/websearch-mcp-VERSION-linux-arm64.tar.gz
+tar -xzf websearch-mcp-VERSION-linux-arm64.tar.gz
+chmod +x websearch-mcp-linux-arm64
+./websearch-mcp-linux-arm64
+```
+
+### Build from Source
+
+If you prefer to build from source:
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd websearch-mcp
+
+# Build for your platform
+make build
+
+# Or build for all platforms
+make build-all-platforms
+```
+
+See [docs/BUILDING.md](docs/BUILDING.md) for detailed build instructions.
+
+## 📦 Supported Platforms
+
+| Platform | Architecture | Status |
+|----------|--------------|--------|
+| macOS 11+ | Apple Silicon (ARM64) | ✅ Fully Supported |
+| macOS 11+ | Intel (x86_64) | ✅ Fully Supported |
+| Windows 10/11 | Intel/AMD (x86_64) | ✅ Fully Supported |
+| Windows 10/11 | ARM64 | ✅ Supported |
+| Linux | Intel/AMD (x86_64) | ✅ Fully Supported |
+| Linux | ARM64 | ✅ Fully Supported |
+
+See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for detailed platform information.
 
 ## Quick Start with Tabnine
 
-### 1. Build the Server
-```bash
-CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
-# or
-make build
-```
+### 1. Download or Build the Server
+
+Download the binary for your platform (see above) or build from source.
 
 ### 2. Configure Tabnine MCP
 Create a `.mcp_servers` file in your project root:
@@ -29,7 +105,7 @@ Create a `.mcp_servers` file in your project root:
 {
   "mcpServers": {
     "websearch": {
-      "command": "./websearch-mcp",
+      "command": "./websearch-mcp-darwin-arm64",
       "args": [],
       "env": {
         "PORT": "8080"
@@ -39,13 +115,21 @@ Create a `.mcp_servers` file in your project root:
 }
 ```
 
+**Note:** Update the `command` path to match your platform's binary name:
+- macOS Apple Silicon: `./websearch-mcp-darwin-arm64`
+- macOS Intel: `./websearch-mcp-darwin-amd64`
+- Windows Intel: `websearch-mcp-windows-amd64.exe`
+- Windows ARM: `websearch-mcp-windows-arm64.exe`
+- Linux Intel: `./websearch-mcp-linux-amd64`
+- Linux ARM: `./websearch-mcp-linux-arm64`
+
 ### 3. Test Integration
 Ask your Tabnine Agent:
 ```
 "Search for 'Go programming best practices' and give me the top 5 results"
 ```
 
-For detailed setup instructions, see [TABNINE_SETUP.md](TABNINE_SETUP.md).
+For detailed setup instructions, see [docs/TABNINE_SETUP.md](docs/TABNINE_SETUP.md).
 
 ## Installation
 
@@ -62,7 +146,11 @@ go mod tidy
 
 3. Build the server:
 ```bash
-CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp
+# For your current platform
+CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
+
+# Or use Make
+make build
 ```
 
 ## Usage
@@ -70,13 +158,22 @@ CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp
 ### Running the Server
 
 ```bash
-./websearch-mcp
+# macOS/Linux
+./websearch-mcp-darwin-arm64  # or your platform's binary
+
+# Windows
+websearch-mcp-windows-amd64.exe
 ```
 
 The server will start on port 8080 by default. You can specify a different port using the `PORT` environment variable:
 
 ```bash
-PORT=3000 ./websearch-mcp
+# macOS/Linux
+PORT=3000 ./websearch-mcp-darwin-arm64
+
+# Windows (PowerShell)
+$env:PORT = "3000"
+.\websearch-mcp-windows-amd64.exe
 ```
 
 ### WebSocket Endpoint
@@ -85,6 +182,15 @@ The server exposes a WebSocket endpoint at:
 ```
 ws://localhost:8080/
 ```
+
+## 📚 Documentation
+
+- **[Building](docs/BUILDING.md)**: Detailed build instructions for all platforms
+- **[Platform Support](docs/PLATFORM_SUPPORT.md)**: Platform-specific installation and compatibility
+- **[Usage Guide](docs/USAGE.md)**: How to use the server
+- **[Tabnine Setup](docs/TABNINE_SETUP.md)**: Integration with Tabnine Agents
+- **[Workflows](docs/WORKFLOWS.md)**: CI/CD and release processes
+- **[MCP Introduction](docs/mcp-introduction.md)**: Understanding the Model Context Protocol
 
 ## MCP Protocol Implementation
 
@@ -180,7 +286,7 @@ Search results are returned in the following format:
     "content": [
       {
         "type": "text",
-        "text": "Search results for: Go programming best practices\nFound 8 results:\n\n1. Go Best Practices\n   URL: https://example.com/go-best-practices\n   Description: A comprehensive guide to Go programming best practices...\n\n..."
+        "text": "Search results for: Go programming best practices\\nFound 8 results:\\n\\n1. Go Best Practices\\n   URL: https://example.com/go-best-practices\\n   Description: A comprehensive guide to Go programming best practices...\\n\\n..."
       }
     ]
   }
@@ -233,10 +339,21 @@ MIT License
 
 ### Common Issues
 
-1. Connection Refused: Ensure the server is running and the port is correct
-2. No Search Results: Check your internet connection and verify DuckDuckGo is accessible
-3. WebSocket Errors: Ensure your client supports WebSocket connections
+1. **Connection Refused**: Ensure the server is running and the port is correct
+2. **No Search Results**: Check your internet connection and verify DuckDuckGo is accessible
+3. **WebSocket Errors**: Ensure your client supports WebSocket connections
+4. **Wrong Architecture**: Download the correct binary for your platform (see [Platform Support](docs/PLATFORM_SUPPORT.md))
+
+### Platform-Specific Issues
+
+See [docs/PLATFORM_SUPPORT.md](docs/PLATFORM_SUPPORT.md) for platform-specific troubleshooting.
 
 ### Logging
 
 The server logs all connections, disconnections, and errors to help with debugging.
+
+## 🔗 Related Resources
+
+- [Model Context Protocol Specification](https://modelcontextprotocol.io/)
+- [Tabnine Documentation](https://www.tabnine.com/docs)
+- [DuckDuckGo Search](https://duckduckgo.com/)

@@ -41,9 +41,45 @@ jobs:
       run: go test -v ./...
 
   build:
-    name: Build binary
-    runs-on: ubuntu-latest
+    name: Build for ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
     needs: test
+    strategy:
+      matrix:
+        include:
+          # macOS builds
+          - os: macos-latest
+            platform: darwin-amd64
+            goos: darwin
+            goarch: amd64
+            ext: ''
+          - os: macos-latest
+            platform: darwin-arm64
+            goos: darwin
+            goarch: arm64
+            ext: ''
+          # Windows builds
+          - os: windows-latest
+            platform: windows-amd64
+            goos: windows
+            goarch: amd64
+            ext: '.exe'
+          - os: windows-latest
+            platform: windows-arm64
+            goos: windows
+            goarch: arm64
+            ext: '.exe'
+          # Linux builds
+          - os: ubuntu-latest
+            platform: linux-amd64
+            goos: linux
+            goarch: amd64
+            ext: ''
+          - os: ubuntu-latest
+            platform: linux-arm64
+            goos: linux
+            goarch: arm64
+            ext: ''
 
     steps:
     - name: Checkout code
@@ -58,6 +94,7 @@ jobs:
 
     - name: Get version info
       id: version
+      shell: bash
       run: |
         VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-${GITHUB_SHA::8}")
         BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -72,45 +109,63 @@ jobs:
         VERSION: ${{ steps.version.outputs.VERSION }}
         BUILD_TIME: ${{ steps.version.outputs.BUILD_TIME }}
         GIT_COMMIT: ${{ steps.version.outputs.GIT_COMMIT }}
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      shell: bash
       run: |
-        # Build optimized binary with version information (matching Makefile)
+        # Build optimized binary with version information
         CGO_ENABLED=0 go build \
           -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
           -a -installsuffix cgo \
-          -o websearch-mcp \
+          -o websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} \
           .
         
-        # Make it executable
-        chmod +x websearch-mcp
-        
         # Show binary info
-        ls -lh websearch-mcp
-        file websearch-mcp
+        ls -lh websearch-mcp-${{ matrix.platform }}${{ matrix.ext }}
 
-    - name: Create archive
+    - name: Create archive (Unix)
+      if: matrix.goos != 'windows'
+      shell: bash
       run: |
-        # Create a tarball with the binary and documentation
-        tar -czf websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz \
-          websearch-mcp \
+        tar -czf websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.tar.gz \
+          websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} \
           README.md
         
         # Create checksum
-        sha256sum websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz > checksums.txt
-        sha256sum websearch-mcp >> checksums.txt
+        if command -v sha256sum > /dev/null; then
+          sha256sum websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.tar.gz > checksums.txt
+          sha256sum websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} >> checksums.txt
+        else
+          shasum -a 256 websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.tar.gz > checksums.txt
+          shasum -a 256 websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} >> checksums.txt
+        fi
+
+    - name: Create archive (Windows)
+      if: matrix.goos == 'windows'
+      shell: bash
+      run: |
+        # Create zip archive for Windows
+        7z a -tzip websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.zip \
+          websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} \
+          README.md
+        
+        # Create checksum
+        sha256sum websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.zip > checksums.txt
+        sha256sum websearch-mcp-${{ matrix.platform }}${{ matrix.ext }} >> checksums.txt
 
     - name: Upload binary artifact
       uses: actions/upload-artifact@v4
       with:
-        name: websearch-mcp-binary
-        path: websearch-mcp
+        name: websearch-mcp-binary-${{ matrix.platform }}
+        path: websearch-mcp-${{ matrix.platform }}${{ matrix.ext }}
         retention-days: 90
 
     - name: Upload release archive
       uses: actions/upload-artifact@v4
       with:
-        name: websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64
+        name: websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}
         path: |
-          websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
+          websearch-mcp-${{ steps.version.outputs.VERSION }}-${{ matrix.platform }}.*
           checksums.txt
         retention-days: 90
 
@@ -132,11 +187,22 @@ jobs:
         VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-${GITHUB_SHA::8}")
         echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
 
-    - name: Download artifacts
+    - name: Download all artifacts
       uses: actions/download-artifact@v4
       with:
-        name: websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64
         path: ./artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release-assets
+        # Move all archives and checksums to release-assets
+        find ./artifacts -name "*.tar.gz" -exec cp {} release-assets/ \;
+        find ./artifacts -name "*.zip" -exec cp {} release-assets/ \;
+        
+        # Combine all checksums into a single file
+        find ./artifacts -name "checksums.txt" -exec cat {} \; > release-assets/checksums.txt
+        
+        ls -lh release-assets/
 
     - name: Create/Update snapshot release
       uses: softprops/action-gh-release@v1
@@ -153,31 +219,57 @@ jobs:
           
           This is an automated snapshot build from the latest commit on the `main` branch.
           
-          ## Download
+          ## Supported Platforms
           
-          Download the binary archive from the Assets section below.
+          ### macOS
+          - **Intel (x86_64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-amd64.tar.gz`
+          - **Apple Silicon (ARM64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-arm64.tar.gz`
+          
+          ### Windows
+          - **Intel (x86_64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-windows-amd64.zip`
+          - **ARM64**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-windows-arm64.zip`
+          
+          ### Linux
+          - **Intel (x86_64)**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz`
+          - **ARM64**: `websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz`
           
           ## Quick Start
           
+          ### macOS / Linux
           ```bash
-          # Extract the archive
-          tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
+          # Download and extract (replace with your platform)
+          tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-darwin-arm64.tar.gz
           
           # Make it executable
-          chmod +x websearch-mcp
+          chmod +x websearch-mcp-darwin-arm64
           
           # Run the server
-          ./websearch-mcp
+          ./websearch-mcp-darwin-arm64
+          ```
+          
+          ### Windows
+          ```powershell
+          # Extract the zip file
+          # Then run from PowerShell or Command Prompt
+          .\websearch-mcp-windows-amd64.exe
           ```
           
           ## Verification
           
-          Verify the download using the checksums provided in `checksums.txt`.
+          Verify your download using the checksums provided in `checksums.txt`.
+          
+          ```bash
+          # macOS / Linux
+          sha256sum -c checksums.txt
+          
+          # Windows (PowerShell)
+          Get-FileHash websearch-mcp-*.exe -Algorithm SHA256
+          ```
           
           ---
           
           **Note:** This is a development snapshot. For stable releases, see the [Releases](https://github.com/${{ github.repository }}/releases) page.
-        files: ./artifacts/*
+        files: release-assets/*
         draft: false
         prerelease: true
         fail_on_unmatched_files: true
