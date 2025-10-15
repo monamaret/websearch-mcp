@@ -1,9 +1,9 @@
 # WebSearch MCP Server
 
-A lightweight Model Context Protocol (MCP) server written in Go that adds web search (DuckDuckGo) to MCP-compatible clients like Tabnine Agents.
+A lightweight Model Context Protocol (MCP) server written in Go that adds web search (privacy-friendly providers with no API keys) to MCP-compatible clients like Tabnine Agents.
 
 ## What it does (quick overview)
-- Web search via DuckDuckGo with clean, structured results
+- Web search via privacy-friendly providers (Mojeek, DuckDuckGo) with Wikipedia fallback
 - Works out of the box with Tabnine Agents (stdio mode by default)
 - Optional HTTP/WebSocket mode for testing and debugging
 - Single portable binary with multi-platform support
@@ -188,7 +188,7 @@ MIT License
 
 ## Features
 
-- **Web Search**: Search the web using DuckDuckGo
+- **Web Search**: Search the web using privacy-friendly providers (Mojeek, DuckDuckGo) with Wikipedia fallback
 - **MCP Compliant**: Implements the Model Context Protocol specification
 - **Tabnine Ready**: Pre-configured for Tabnine Agents integration
 - **Stdio Communication**: Direct communication via standard input/output (default)
@@ -343,6 +343,24 @@ websearch-mcp-windows-amd64.exe --http 8080
 MCP_MODE=http PORT=8080 ./websearch-mcp-darwin-arm64
 ```
 
+#### Provider selection examples
+
+You can choose the search provider using the SEARCH_PROVIDER environment variable (see Environment Variables below). Make sure the variable is set for the server process, not for the echo/printf command when piping input.
+
+```bash
+# Option 1: Export and then run the server
+export SEARCH_PROVIDER=ddg   # choices: auto (default), mojeek, ddg (duckduckgo), wikipedia
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"golang channels tutorial","max_results":5}}}\n' | ./websearch-mcp --stdio
+
+# Option 2: Inline env just for the server process
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"golang channels tutorial","max_results":5}}}\n' | SEARCH_PROVIDER=mojeek ./websearch-mcp --stdio
+
+# Debug scraping (logs a small HTML preview to stderr for Mojeek/DDG parsing)
+printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"golang channels tutorial","max_results":5}}}\n' | SEARCH_PROVIDER=auto SEARCH_DEBUG=1 ./websearch-mcp --stdio
+```
+
+Note: Setting SEARCH_PROVIDER=ddg echo '...' | ./websearch-mcp --stdio sets the environment for echo, not for the server. Use one of the two patterns above instead.
+
 #### Command Line Options
 
 ```bash
@@ -402,7 +420,7 @@ When running in HTTP mode, the server exposes:
 
 #### web_search
 
-Search the web for information using DuckDuckGo.
+Search the web for information using the configured provider. By default, the server tries Mojeek, then DuckDuckGo, and falls back to Wikipedia if needed. You can control this behavior via the SEARCH_PROVIDER environment variable.
 
 **Parameters:**
 - `query` (string, required): The search query to execute
@@ -496,6 +514,12 @@ Search results are returned in the following format:
 
 - PORT: Server port (default: 8080)
 - MCP_MODE: Communication mode ('stdio' or 'http', default: 'stdio')
+- SEARCH_PROVIDER: Selects the search provider. Values:
+  - `auto` (default): Try Mojeek → DuckDuckGo → Wikipedia (first provider with results wins)
+  - `mojeek`: Use Mojeek HTML results (no API key)
+  - `duckduckgo` or `ddg`: Use DuckDuckGo HTML results (no API key)
+  - `wikipedia` or `wiki`: Use Wikipedia's MediaWiki API (no API key)
+- SEARCH_DEBUG: Set to `1` to enable debug output for HTML parsing (logs a small HTML preview to stderr for troubleshooting selectors). Default: disabled.
 
 ## Development
 
@@ -517,7 +541,7 @@ You can test the server using a WebSocket client or the provided test scripts.
 ## Security Considerations
 
 - The server accepts connections from all origins for MCP compatibility
-- DuckDuckGo is used as the search provider to avoid API key requirements
+- Privacy-friendly providers are used to avoid API key requirements
 - Request timeouts are configured to prevent hanging connections
 - The server includes graceful shutdown handling
 
@@ -538,7 +562,7 @@ MIT License
 ### Common Issues
 
 1. **Connection Refused**: Ensure the server is running and the port is correct
-2. **No Search Results**: Check your internet connection and verify DuckDuckGo is accessible
+2. **No Search Results**: Check your internet connection and verify the search provider is accessible
 3. **WebSocket Errors**: Ensure your client supports WebSocket connections
 4. **Wrong Architecture**: Download the correct binary for your platform (see [Platform Support](docs/PLATFORM_SUPPORT.md))
 
@@ -554,4 +578,6 @@ The server logs all connections, disconnections, and errors to help with debuggi
 
 - [Model Context Protocol Specification](https://modelcontextprotocol.io/)
 - [Tabnine Documentation](https://www.tabnine.com/docs)
+- [Mojeek Search](https://www.mojeek.com/)
 - [DuckDuckGo Search](https://duckduckgo.com/)
+- [Wikipedia API](https://www.mediawiki.org/wiki/API:Main_page)

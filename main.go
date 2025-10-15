@@ -227,7 +227,7 @@ func (s *WebSearchServer) handleToolsList(msg MCPMessage) *MCPMessage {
 	tools := []Tool{
 		{
 			Name:        "web_search",
-			Description: "Search the web for information using DuckDuckGo",
+			Description: "Search the web for information using a privacy-friendly provider (no API keys)",
 			InputSchema: ToolSchema{
 				Type: "object",
 				Properties: map[string]interface{}{
@@ -356,30 +356,55 @@ func (s *WebSearchServer) handleWebSearch(msg MCPMessage, args map[string]interf
 }
 
 func (s *WebSearchServer) performWebSearch(query string, maxResults int) (*SearchResponse, error) {
-	// Use DuckDuckGo for web search
+	// Choose provider via env (default: auto -> Mojeek -> DuckDuckGo -> Wikipedia)
+	provider := strings.ToLower(strings.TrimSpace(os.Getenv("SEARCH_PROVIDER")))
+	switch provider {
+	case "duckduckgo", "ddg":
+		return s.performDuckDuckGoSearch(query, maxResults)
+	case "mojeek":
+		return s.performMojeekSearch(query, maxResults)
+	case "wikipedia", "wiki":
+		return s.performWikipediaSearch(query, maxResults)
+	case "auto", "":
+		// Try Mojeek, then DuckDuckGo, then Wikipedia
+		if res, err := s.performMojeekSearch(query, maxResults); err == nil && len(res.Results) > 0 {
+			return res, nil
+		}
+		if res, err := s.performDuckDuckGoSearch(query, maxResults); err == nil && len(res.Results) > 0 {
+			return res, nil
+		}
+		return s.performWikipediaSearch(query, maxResults)
+	default:
+		// Unknown provider -> auto fallback
+		if res, err := s.performMojeekSearch(query, maxResults); err == nil && len(res.Results) > 0 {
+			return res, nil
+		}
+		if res, err := s.performDuckDuckGoSearch(query, maxResults); err == nil && len(res.Results) > 0 {
+			return res, nil
+		}
+		return s.performWikipediaSearch(query, maxResults)
+	}
+}
+
+func (s *WebSearchServer) performDuckDuckGoSearch(query string, maxResults int) (*SearchResponse, error) {
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 
-	client := &http.Client{
-		Timeout: 30 * time.Second,
-	}
-
+	client := &http.Client{Timeout: 30 * time.Second}
 	req, err := http.NewRequest("GET", searchURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
-
-	// Set headers to mimic a browser
+	// Headers to mimic a browser
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	req.Header.Set("Accept-Encoding", "gzip, deflate")
+	// Do not set Accept-Encoding manually; let Go auto-handle gzip to avoid manual decompression
 
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to perform search: %w", err)
 	}
 	defer resp.Body.Close()
-
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("search request failed with status: %d", resp.StatusCode)
 	}
@@ -391,41 +416,207 @@ func (s *WebSearchServer) performWebSearch(query string, maxResults int) (*Searc
 
 	var results []SearchResult
 	rank := 1
-
+	// DDG HTML results
 	doc.Find(".result").Each(func(i int, sel *goquery.Selection) {
 		if rank > maxResults {
 			return
 		}
-
-		titleLink := sel.Find(".result__title a")
+		// Skip ads and non-organic blocks
+		cls := sel.AttrOr("class", "")
+		if strings.Contains(cls, "result--ad") || strings.Contains(cls, "result--more") {
+			return
+		}
+		// Try common selectors for title link
+		titleLink := sel.Find("a.result__a")
+		if titleLink.Length() == 0 {
+			titleLink = sel.Find(".result__title a")
+		}
 		title := strings.TrimSpace(titleLink.Text())
 		href, exists := titleLink.Attr("href")
-
 		if !exists || title == "" {
 			return
 		}
 
-		// Clean up the URL (DuckDuckGo uses redirect URLs)
-		if strings.HasPrefix(href, "//duckduckgo.com/l/?uddg=") {
-			return // Skip these redirect URLs
+		// Resolve DDG redirect links like /l/?uddg=...
+		finalURL := href
+		if strings.HasPrefix(href, "/l/?") || strings.Contains(href, "duckduckgo.com/l/?") {
+			// Build absolute URL to parse query
+			base, _ := url.Parse("https://duckduckgo.com")
+			rel, err := url.Parse(href)
+			if err == nil {
+				abs := base.ResolveReference(rel)
+				uddg := abs.Query().Get("uddg")
+				if uddg != "" {
+					if decoded, err := url.QueryUnescape(uddg); err == nil {
+						finalURL = decoded
+					} else {
+						finalURL = uddg
+					}
+				}
+			}
+		}
+		// Skip if not an http(s) URL or if it's an internal DDG ad/tracking link
+		if !(strings.HasPrefix(finalURL, "http://") || strings.HasPrefix(finalURL, "https://")) {
+			return
+		}
+		if strings.Contains(finalURL, "duckduckgo.com/y.js") || strings.Contains(finalURL, "ad_provider=") {
+			return
 		}
 
-		description := strings.TrimSpace(sel.Find(".result__snippet").Text())
+		desc := strings.TrimSpace(sel.Find(".result__snippet").Text())
+		if desc == "" {
+			desc = strings.TrimSpace(sel.Find(".result__snippet.js-result-snippet").Text())
+		}
 
 		results = append(results, SearchResult{
 			Title:       title,
-			URL:         href,
-			Description: description,
+			URL:         finalURL,
+			Description: desc,
 			Rank:        rank,
 		})
 		rank++
 	})
 
-	return &SearchResponse{
-		Query:   query,
-		Results: results,
-		Count:   len(results),
-	}, nil
+	return &SearchResponse{Query: query, Results: results, Count: len(results)}, nil
+}
+
+func (s *WebSearchServer) performMojeekSearch(query string, maxResults int) (*SearchResponse, error) {
+	searchURL := fmt.Sprintf("https://www.mojeek.com/search?q=%s", url.QueryEscape(query))
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", searchURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform search: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("search request failed with status: %d", resp.StatusCode)
+	}
+
+	var reader io.Reader = resp.Body
+	if os.Getenv("SEARCH_DEBUG") == "1" {
+		// tee a small preview to stderr for debugging selectors
+		buf := new(strings.Builder)
+		limited := io.TeeReader(io.LimitReader(reader, 4096), buf)
+		_, _ = io.ReadAll(limited)
+		s.logger.Printf("[DEBUG] Mojeek HTML preview: %q", buf.String())
+		// Reset reader to full body (we consumed 4096). Fetch again entirely for parsing.
+		// Note: For simplicity, re-issue the request in debug mode to get a fresh body.
+		resp.Body.Close()
+		resp, err = client.Get(searchURL)
+		if err != nil {
+			return nil, fmt.Errorf("failed to refetch for debug: %w", err)
+		}
+		defer resp.Body.Close()
+		reader = resp.Body
+	}
+
+	doc, err := goquery.NewDocumentFromReader(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse HTML: %w", err)
+	}
+
+	var results []SearchResult
+	rank := 1
+	// Mojeek uses a simple results list; try multiple robust selectors
+	doc.Find("#results .result, li.result, div.result").Each(func(i int, sel *goquery.Selection) {
+		if rank > maxResults {
+			return
+		}
+		a := sel.Find("a").First()
+		title := strings.TrimSpace(a.Text())
+		href, exists := a.Attr("href")
+		if !exists || title == "" {
+			return
+		}
+		// Filter internal navigation links
+		if strings.HasPrefix(href, "/search") || strings.Contains(href, "www.mojeek.com/search") {
+			return
+		}
+		// Resolve relative links just in case
+		finalURL := href
+		if strings.HasPrefix(href, "/") {
+			base, _ := url.Parse("https://www.mojeek.com")
+			rel, err := url.Parse(href)
+			if err == nil {
+				finalURL = base.ResolveReference(rel).String()
+			}
+		}
+
+		desc := strings.TrimSpace(sel.Find("p.s, .s, p").First().Text())
+
+		results = append(results, SearchResult{
+			Title:       title,
+			URL:         finalURL,
+			Description: desc,
+			Rank:        rank,
+		})
+		rank++
+	})
+
+	return &SearchResponse{Query: query, Results: results, Count: len(results)}, nil
+}
+
+func (s *WebSearchServer) performWikipediaSearch(query string, maxResults int) (*SearchResponse, error) {
+	// Use MediaWiki API (no API key) for a reliable fallback
+	apiURL := fmt.Sprintf("https://en.wikipedia.org/w/api.php?action=query&list=search&format=json&utf8=1&srsearch=%s&srlimit=%d", url.QueryEscape(query), maxResults)
+
+	client := &http.Client{Timeout: 20 * time.Second}
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	req.Header.Set("User-Agent", "websearch-mcp/"+version+" (+https://example.com) Go-http-client")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to perform search: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("search request failed with status: %d", resp.StatusCode)
+	}
+
+	var data struct {
+		Query struct {
+			Search []struct {
+				Title   string `json:"title"`
+				PageID  int    `json:"pageid"`
+				Snippet string `json:"snippet"`
+			} `json:"search"`
+		} `json:"query"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("failed to decode JSON: %w", err)
+	}
+
+	results := make([]SearchResult, 0, len(data.Query.Search))
+	for i, item := range data.Query.Search {
+		if i >= maxResults {
+			break
+		}
+		url := fmt.Sprintf("https://en.wikipedia.org/?curid=%d", item.PageID)
+		// Strip HTML from snippet
+		desc := strings.ReplaceAll(item.Snippet, "<span class=\"searchmatch\">", "")
+		desc = strings.ReplaceAll(desc, "</span>", "")
+		desc = strings.ReplaceAll(desc, "<span class=\"searchalttitle\">", "")
+		desc = strings.ReplaceAll(desc, "</span>", "")
+		results = append(results, SearchResult{
+			Title:       item.Title,
+			URL:         url,
+			Description: desc,
+			Rank:        i + 1,
+		})
+	}
+	return &SearchResponse{Query: query, Results: results, Count: len(results)}, nil
 }
 
 func (s *WebSearchServer) formatSearchResults(response *SearchResponse) string {
@@ -614,6 +805,8 @@ func main() {
 			fmt.Println("Environment Variables:")
 			fmt.Println("  MCP_MODE          Set to 'http' or 'stdio' (default: stdio)")
 			fmt.Println("  PORT              Port for HTTP mode (default: 8080)")
+			fmt.Println("  SEARCH_PROVIDER   Search provider: 'mojeek', 'duckduckgo', 'wikipedia' or 'auto' (default: auto)")
+			fmt.Println("  SEARCH_DEBUG      Set to '1' to enable debug output for HTML parsing (default: disabled)")
 			return
 		}
 	}
