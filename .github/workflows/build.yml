@@ -7,6 +7,9 @@ on:
   pull_request:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   test:
     name: Test
@@ -15,6 +18,8 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Go
       uses: actions/setup-go@v4
@@ -36,29 +41,145 @@ jobs:
       run: go test -v ./...
 
   build:
-    name: Build single binary
+    name: Build binary
     runs-on: ubuntu-latest
     needs: test
 
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
 
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
 
-    - name: Build binary
+    - name: Get version info
+      id: version
       run: |
-        # Build a single optimized binary
+        VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-${GITHUB_SHA::8}")
+        BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        GIT_COMMIT=${GITHUB_SHA::8}
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+        echo "BUILD_TIME=${BUILD_TIME}" >> $GITHUB_OUTPUT
+        echo "GIT_COMMIT=${GIT_COMMIT}" >> $GITHUB_OUTPUT
+        echo "Building version: ${VERSION}"
+
+    - name: Build binary
+      env:
+        VERSION: ${{ steps.version.outputs.VERSION }}
+        BUILD_TIME: ${{ steps.version.outputs.BUILD_TIME }}
+        GIT_COMMIT: ${{ steps.version.outputs.GIT_COMMIT }}
+      run: |
+        # Build optimized binary with version information (matching Makefile)
         CGO_ENABLED=0 go build \
-          -ldflags="-w -s -X main.version=${{ github.sha }}" \
+          -ldflags="-w -s -X main.version=${VERSION} -X main.buildTime=${BUILD_TIME} -X main.gitCommit=${GIT_COMMIT}" \
+          -a -installsuffix cgo \
           -o websearch-mcp \
           .
+        
+        # Make it executable
+        chmod +x websearch-mcp
+        
+        # Show binary info
+        ls -lh websearch-mcp
+        file websearch-mcp
 
-    - name: Upload build artifact
+    - name: Create archive
+      run: |
+        # Create a tarball with the binary and documentation
+        tar -czf websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz \
+          websearch-mcp \
+          README.md
+        
+        # Create checksum
+        sha256sum websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz > checksums.txt
+        sha256sum websearch-mcp >> checksums.txt
+
+    - name: Upload binary artifact
       uses: actions/upload-artifact@v4
       with:
-        name: websearch-mcp
+        name: websearch-mcp-binary
         path: websearch-mcp
+        retention-days: 90
+
+    - name: Upload release archive
+      uses: actions/upload-artifact@v4
+      with:
+        name: websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64
+        path: |
+          websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
+          checksums.txt
+        retention-days: 90
+
+  create-snapshot-release:
+    name: Create Snapshot Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Get version info
+      id: version
+      run: |
+        VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev-${GITHUB_SHA::8}")
+        echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+
+    - name: Download artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64
+        path: ./artifacts
+
+    - name: Create/Update snapshot release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: snapshot-${{ github.sha }}
+        name: "Snapshot Build (main @ ${{ github.sha }})"
+        body: |
+          # WebSearch MCP Server - Snapshot Build
+          
+          **Built from:** `main` branch
+          **Commit:** ${{ github.sha }}
+          **Version:** ${{ steps.version.outputs.VERSION }}
+          **Build Date:** ${{ github.event.head_commit.timestamp }}
+          
+          This is an automated snapshot build from the latest commit on the `main` branch.
+          
+          ## Download
+          
+          Download the binary archive from the Assets section below.
+          
+          ## Quick Start
+          
+          ```bash
+          # Extract the archive
+          tar -xzf websearch-mcp-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz
+          
+          # Make it executable
+          chmod +x websearch-mcp
+          
+          # Run the server
+          ./websearch-mcp
+          ```
+          
+          ## Verification
+          
+          Verify the download using the checksums provided in `checksums.txt`.
+          
+          ---
+          
+          **Note:** This is a development snapshot. For stable releases, see the [Releases](https://github.com/${{ github.repository }}/releases) page.
+        files: ./artifacts/*
+        draft: false
+        prerelease: true
+        fail_on_unmatched_files: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

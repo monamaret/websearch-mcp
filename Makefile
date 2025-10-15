@@ -1,4 +1,4 @@
-.PHONY: build run clean test deps dev fmt vet lint install-tools setup-tabnine validate-tabnine tabnine-demo version help
+.PHONY: build run clean test deps dev fmt vet lint install-tools setup-tabnine validate-tabnine tabnine-demo version help build-all-platforms
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -8,16 +8,50 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 # Build flags
 LDFLAGS = -w -s -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X main.gitCommit=$(GIT_COMMIT)
 
+# Binary name
+BINARY_NAME = websearch-mcp
+
 # Default target
 all: build
 
 # Build the server (single binary)
 build:
-	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp .
+	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o $(BINARY_NAME) .
 
 # Build optimized release binary
 build-release:
-	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o websearch-mcp .
+	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o $(BINARY_NAME) .
+
+# Build for multiple platforms
+build-all-platforms: clean
+	@echo "Building for multiple platforms..."
+	@mkdir -p dist
+	
+	@echo "Building for Linux (amd64)..."
+	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-linux-amd64 .
+	tar -czf dist/$(BINARY_NAME)-$(VERSION)-linux-amd64.tar.gz -C dist $(BINARY_NAME)-linux-amd64 -C .. README.md
+	
+	@echo "Building for Linux (arm64)..."
+	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-linux-arm64 .
+	tar -czf dist/$(BINARY_NAME)-$(VERSION)-linux-arm64.tar.gz -C dist $(BINARY_NAME)-linux-arm64 -C .. README.md
+	
+	@echo "Building for macOS (amd64)..."
+	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-darwin-amd64 .
+	tar -czf dist/$(BINARY_NAME)-$(VERSION)-darwin-amd64.tar.gz -C dist $(BINARY_NAME)-darwin-amd64 -C .. README.md
+	
+	@echo "Building for macOS (arm64/Apple Silicon)..."
+	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-darwin-arm64 .
+	tar -czf dist/$(BINARY_NAME)-$(VERSION)-darwin-arm64.tar.gz -C dist $(BINARY_NAME)-darwin-arm64 -C .. README.md
+	
+	@echo "Building for Windows (amd64)..."
+	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o dist/$(BINARY_NAME)-windows-amd64.exe .
+	cd dist && zip $(BINARY_NAME)-$(VERSION)-windows-amd64.zip $(BINARY_NAME)-windows-amd64.exe ../README.md
+	
+	@echo "Generating checksums..."
+	cd dist && sha256sum *.tar.gz *.zip > checksums.txt 2>/dev/null || shasum -a 256 *.tar.gz *.zip > checksums.txt
+	
+	@echo "Build complete! Artifacts in dist/ directory:"
+	@ls -lh dist/
 
 # Run the server
 run:
@@ -25,7 +59,8 @@ run:
 
 # Clean build artifacts
 clean:
-	rm -f websearch-mcp
+	rm -f $(BINARY_NAME)
+	rm -rf dist
 	go clean
 
 # Download dependencies
@@ -36,7 +71,7 @@ deps:
 # Test the server (builds and runs test client)
 test: build
 	@echo "Starting server in background..."
-	@./websearch-mcp &
+	@./$(BINARY_NAME) &
 	@SERVER_PID=$$!; \
 	sleep 2; \
 	echo "Running test client..."; \
@@ -86,8 +121,8 @@ validate-tabnine:
 		echo "❌ .mcp_servers file not found. Run 'make setup-tabnine' first."; \
 		exit 1; \
 	fi
-	@if [ ! -f "./websearch-mcp" ]; then \
-		echo "❌ websearch-mcp binary not found. Run 'make build' first."; \
+	@if [ ! -f "./$(BINARY_NAME)" ]; then \
+		echo "❌ $(BINARY_NAME) binary not found. Run 'make build' first."; \
 		exit 1; \
 	fi
 	@echo "✅ Tabnine MCP configuration is valid"
@@ -95,7 +130,7 @@ validate-tabnine:
 tabnine-demo: build validate-tabnine
 	@echo "Starting Tabnine MCP demo..."
 	@echo "1. Starting WebSearch MCP server..."
-	@./websearch-mcp &
+	@./$(BINARY_NAME) &
 	@SERVER_PID=$$!; \
 	sleep 2; \
 	echo "2. Testing server health..."; \
@@ -115,22 +150,23 @@ version:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build            - Build the server binary (single host)"
-	@echo "  build-release    - Build optimized release binary"
-	@echo "  run              - Run the server directly"
-	@echo "  clean            - Clean build artifacts"
-	@echo "  deps             - Download and tidy dependencies"
-	@echo "  test             - Build and test with test client"
-	@echo "  dev              - Run in development mode with hot reload"
-	@echo "  fmt              - Format Go code"
-	@echo "  vet              - Run go vet"
-	@echo "  lint             - Run golangci-lint"
-	@echo "  install-tools    - Install development tools"
-	@echo "  version          - Show version information"
+	@echo "  build                - Build the server binary (single host)"
+	@echo "  build-release        - Build optimized release binary"
+	@echo "  build-all-platforms  - Build binaries for all supported platforms"
+	@echo "  run                  - Run the server directly"
+	@echo "  clean                - Clean build artifacts"
+	@echo "  deps                 - Download and tidy dependencies"
+	@echo "  test                 - Build and test with test client"
+	@echo "  dev                  - Run in development mode with hot reload"
+	@echo "  fmt                  - Format Go code"
+	@echo "  vet                  - Run go vet"
+	@echo "  lint                 - Run golangci-lint"
+	@echo "  install-tools        - Install development tools"
+	@echo "  version              - Show version information"
 	@echo ""
 	@echo "Tabnine MCP targets:"
-	@echo "  setup-tabnine    - Interactive setup for Tabnine MCP integration"
-	@echo "  validate-tabnine - Validate Tabnine MCP configuration"
-	@echo "  tabnine-demo     - Start server and show integration demo"
+	@echo "  setup-tabnine        - Interactive setup for Tabnine MCP integration"
+	@echo "  validate-tabnine     - Validate Tabnine MCP configuration"
+	@echo "  tabnine-demo         - Start server and show integration demo"
 	@echo ""
-	@echo "  help             - Show this help message"
+	@echo "  help                 - Show this help message"
