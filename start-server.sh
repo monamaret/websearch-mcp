@@ -21,8 +21,8 @@ echo ""
 
 # Check if binary exists
 if [ ! -f "./websearch-mcp" ]; then
-    echo -e "${YELLOW}Binary not found. Building...${NC}"
-    go build -o websearch-mcp .
+    echo -e "${YELLOW}Binary not found. Building single binary...${NC}"
+    CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
     echo -e "${GREEN}Build complete!${NC}"
     echo ""
 fi

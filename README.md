@@ -4,20 +4,20 @@ A Model Context Protocol (MCP) server implementation in Go that provides web sea
 
 ## Features
 
-- **Web Search**: Search the web using DuckDuckGo
-- **MCP Compliant**: Implements the Model Context Protocol specification
-- **Tabnine Ready**: Pre-configured for Tabnine Agents integration
-- **WebSocket Communication**: Real-time communication via WebSocket
-- **Configurable Results**: Specify maximum number of search results
-- **Clean Response Format**: Structured search results with titles, URLs, and descriptions
-- **Performance Monitoring**: Built-in health checks and statistics
-- **Docker Support**: Containerized deployment ready
+- Web Search: Search the web using DuckDuckGo
+- MCP Compliant: Implements the Model Context Protocol specification
+- Tabnine Ready: Pre-configured for Tabnine Agents integration
+- WebSocket Communication: Real-time communication via WebSocket
+- Configurable Results: Specify maximum number of search results
+- Clean Response Format: Structured search results with titles, URLs, and descriptions
+- Performance Monitoring: Built-in health checks and statistics
+- Lightweight Binary: Single portable Go binary
 
 ## Quick Start with Tabnine
 
 ### 1. Build the Server
 ```bash
-go build -o websearch-mcp .
+CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
 # or
 make build
 ```
@@ -62,7 +62,7 @@ go mod tidy
 
 3. Build the server:
 ```bash
-go build -o websearch-mcp
+CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp
 ```
 
 ## Usage
@@ -90,10 +90,10 @@ ws://localhost:8080/
 
 ### Supported Methods
 
-1. **initialize**: Initialize the MCP connection
-2. **tools/list**: List available tools
-3. **tools/call**: Execute a tool
-4. **ping**: Health check
+1. initialize: Initialize the MCP connection
+2. tools/list: List available tools
+3. tools/call: Execute a tool
+4. ping: Health check
 
 ### Available Tools
 
@@ -101,11 +101,11 @@ ws://localhost:8080/
 
 Search the web for information using DuckDuckGo.
 
-**Parameters:**
-- `query` (string, required): The search query to execute
-- `max_results` (integer, optional): Maximum number of results to return (default: 10, max: 20)
+Parameters:
+- query (string, required): The search query to execute
+- max_results (integer, optional): Maximum number of results to return (default: 10, max: 20)
 
-**Example:**
+Example:
 ```json
 {
   "jsonrpc": "2.0",
@@ -191,7 +191,7 @@ Search results are returned in the following format:
 
 ### Environment Variables
 
-- `PORT`: Server port (default: 8080)
+- PORT: Server port (default: 8080)
 
 ## Development
 
@@ -207,8 +207,8 @@ You can test the server using a WebSocket client or the provided test scripts.
 
 ## Dependencies
 
-- `github.com/PuerkitoBio/goquery`: HTML parsing for web scraping
-- `github.com/gorilla/websocket`: WebSocket implementation
+- github.com/PuerkitoBio/goquery: HTML parsing for web scraping
+- github.com/gorilla/websocket: WebSocket implementation
 
 ## Security Considerations
 
@@ -233,9 +233,9 @@ MIT License
 
 ### Common Issues
 
-1. **Connection Refused**: Ensure the server is running and the port is correct
-2. **No Search Results**: Check your internet connection and verify DuckDuckGo is accessible
-3. **WebSocket Errors**: Ensure your client supports WebSocket connections
+1. Connection Refused: Ensure the server is running and the port is correct
+2. No Search Results: Check your internet connection and verify DuckDuckGo is accessible
+3. WebSocket Errors: Ensure your client supports WebSocket connections
 
 ### Logging
 

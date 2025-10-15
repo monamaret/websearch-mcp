@@ -117,11 +117,10 @@ make dev
 
 This requires [air](https://github.com/cosmtrek/air) for hot reloading.
 
-### Building Docker Image
+### Building from source
 
 ```bash
-make docker-build
-make docker-run
+CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
 ```
 
 ### Environment Variables

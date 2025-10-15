@@ -23,12 +23,13 @@ fi
 
 # Step 1: Build the server
 echo -e "${YELLOW}📦 Step 1: Building WebSearch MCP Server...${NC}"
+# Ensure server binary exists
 if [ ! -f "./websearch-mcp" ]; then
-    echo -e "${BLUE}Building server binary...${NC}"
-    go build -o websearch-mcp .
+    echo -e "${BLUE}Building server binary (single binary)...${NC}"
+    CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
     echo -e "${GREEN}✅ Server built successfully${NC}"
 else
-    echo -e "${GREEN}✅ Server binary already exists${NC}"
+    echo -e "${GREEN}✅ Server binary found${NC}"
 fi
 echo ""
 
@@ -124,7 +125,6 @@ echo ""
 echo -e "${BLUE}Useful Commands:${NC}"
 echo -e "  🚀 Start server: ${YELLOW}./start-server.sh${NC}"
 echo -e "  🧪 Run tests: ${YELLOW}make test${NC}"
-echo -e "  🐳 Docker build: ${YELLOW}make docker-build${NC}"
 echo -e "  📚 Full guide: ${YELLOW}cat TABNINE_SETUP.md${NC}"
 echo ""
 echo -e "${GREEN}For detailed configuration options and troubleshooting, see:${NC}"

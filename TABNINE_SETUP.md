@@ -134,12 +134,12 @@ make dev
 
 1. **Build optimized binary:**
    ```bash
-   CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp-prod .
+   CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
    ```
 
 2. **Install as system service:**
    ```bash
-   sudo cp websearch-mcp-prod /usr/local/bin/websearch-mcp
+   sudo cp websearch-mcp /usr/local/bin/websearch-mcp
    sudo chmod +x /usr/local/bin/websearch-mcp
    ```
 

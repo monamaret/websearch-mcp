@@ -1,4 +1,4 @@
-.PHONY: build run clean test docker-build docker-run deps
+.PHONY: build run clean test deps dev fmt vet lint install-tools setup-tabnine validate-tabnine tabnine-demo version help
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -11,7 +11,7 @@ LDFLAGS = -w -s -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME) -X ma
 # Default target
 all: build
 
-# Build the server
+# Build the server (single binary)
 build:
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp .
 
@@ -19,22 +19,13 @@ build:
 build-release:
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o websearch-mcp .
 
-# Build for multiple platforms
-build-all:
-	@echo "Building for multiple platforms..."
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp-linux-amd64 .
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp-linux-arm64 .
-	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp-darwin-amd64 .
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp-darwin-arm64 .
-	GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -o websearch-mcp-windows-amd64.exe .
-
 # Run the server
 run:
 	go run main.go
 
 # Clean build artifacts
 clean:
-	rm -f websearch-mcp websearch-mcp-*
+	rm -f websearch-mcp
 	go clean
 
 # Download dependencies
@@ -52,20 +43,6 @@ test: build
 	cd examples && go run test-client.go; \
 	echo "Stopping server..."; \
 	kill $$SERVER_PID
-
-# Build Docker image
-docker-build:
-	docker build \
-		--build-arg VERSION=$(VERSION) \
-		--build-arg BUILD_TIME=$(BUILD_TIME) \
-		--build-arg GIT_COMMIT=$(GIT_COMMIT) \
-		-t websearch-mcp:$(VERSION) \
-		-t websearch-mcp:latest \
-		.
-
-# Run in Docker
-docker-run: docker-build
-	docker run -p 8080:8080 websearch-mcp
 
 # Development mode with hot reload (requires air)
 dev:
@@ -138,15 +115,12 @@ version:
 # Show help
 help:
 	@echo "Available targets:"
-	@echo "  build            - Build the server binary"
+	@echo "  build            - Build the server binary (single host)"
 	@echo "  build-release    - Build optimized release binary"
-	@echo "  build-all        - Build for multiple platforms"
 	@echo "  run              - Run the server directly"
 	@echo "  clean            - Clean build artifacts"
 	@echo "  deps             - Download and tidy dependencies"
 	@echo "  test             - Build and test with test client"
-	@echo "  docker-build     - Build Docker image with version info"
-	@echo "  docker-run       - Run in Docker container"
 	@echo "  dev              - Run in development mode with hot reload"
 	@echo "  fmt              - Format Go code"
 	@echo "  vet              - Run go vet"

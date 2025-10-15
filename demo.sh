@@ -17,8 +17,8 @@ echo ""
 
 # Build the server if needed
 if [ ! -f "./websearch-mcp" ]; then
-    echo -e "${YELLOW}Building server...${NC}"
-    go build -o websearch-mcp .
+    echo -e "${YELLOW}Building server (single binary)...${NC}"
+    CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
     echo -e "${GREEN}Build complete!${NC}"
     echo ""
 fi
@@ -83,5 +83,4 @@ echo ""
 echo -e "${YELLOW}To run tests:${NC}"
 echo -e "${BLUE}  go test -v${NC}"
 echo ""
-echo -e "${YELLOW}To build Docker image:${NC}"
-echo -e "${BLUE}  make docker-build${NC}"
+# End of demo script
