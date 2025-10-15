@@ -2,6 +2,8 @@
 
 This directory contains example configurations and test clients for the WebSearch MCP server.
 
+Note: Example clients are excluded from normal builds via Go build tags. To build or run them, use the `examples` build tag.
+
 ## Configuration Examples
 
 ### `.mcp_servers` - Basic Configuration
@@ -99,7 +101,7 @@ Example of combining websearch with other MCP tools:
 
 ## Test Clients
 
-### `test-stdio-client.go` - Stdio Test Client (Recommended)
+### `stdio-client/` - Stdio Test Client (Recommended)
 
 Test client for stdio mode (the default):
 
@@ -108,9 +110,9 @@ Test client for stdio mode (the default):
 cd ..
 go build -o websearch-mcp .
 
-# Run the stdio test client
-cd examples
-go run test-stdio-client.go
+# Run the stdio test client (requires build tag)
+cd examples/stdio-client
+go run -tags=examples .
 ```
 
 This client:
@@ -141,18 +143,18 @@ Received:
 }
 ```
 
-### `test-http-client.go` - HTTP Test Client
+### `http-client/` - HTTP Test Client
 
-Test client for HTTP mode (for testing/debugging):
+Test client for HTTP/WebSocket mode (for testing/debugging):
 
 ```bash
 # Start the server in HTTP mode
 cd ..
 ./websearch-mcp --http 8080
 
-# In another terminal, run the HTTP test client
-cd examples
-go run test-http-client.go
+# In another terminal, run the HTTP test client (requires build tag)
+cd examples/http-client
+go run -tags=examples .
 ```
 
 This client:
@@ -160,6 +162,18 @@ This client:
 - Sends test messages
 - Receives and displays responses
 - Useful for debugging HTTP mode
+
+### Building example binaries
+
+```bash
+# Build stdio example
+cd examples/stdio-client
+go build -tags=examples -o test-stdio .
+
+# Build HTTP example
+cd examples/http-client
+go build -tags=examples -o test-http .
+```
 
 ## Quick Test
 
@@ -210,8 +224,8 @@ Run the stdio test client:
 ```bash
 cd ..
 go build -o websearch-mcp .
-cd examples
-go run test-stdio-client.go
+cd examples/stdio-client
+go run -tags=examples .
 ```
 
 ### Use Case 3: HTTP Mode Testing
@@ -223,8 +237,8 @@ cd ..
 ./websearch-mcp --http 8080
 
 # Terminal 2
-cd examples
-go run test-http-client.go
+cd examples/http-client
+go run -tags=examples .
 ```
 
 ### Use Case 4: Production Deployment
@@ -273,15 +287,15 @@ curl http://localhost:8080/health
 
 ### Build stdio client:
 ```bash
-cd examples
-go build -o test-stdio test-stdio-client.go
+cd examples/stdio-client
+go build -tags=examples -o test-stdio .
 ./test-stdio
 ```
 
 ### Build HTTP client:
 ```bash
-cd examples
-go build -o test-http test-http-client.go
+cd examples/http-client
+go build -tags=examples -o test-http .
 ./test-http
 ```
 

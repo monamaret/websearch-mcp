@@ -1,4 +1,4 @@
-.PHONY: build run clean test deps dev fmt vet lint install-tools setup-tabnine validate-tabnine tabnine-demo version help build-all-platforms
+.PHONY: build run clean test deps dev fmt vet lint install-tools setup-tabnine validate-tabnine tabnine-demo version help build-all-platforms examples
 
 # Version information
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
@@ -21,6 +21,14 @@ build:
 # Build optimized release binary
 build-release:
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -a -installsuffix cgo -o $(BINARY_NAME) .
+
+# Build example clients (requires 'examples' build tag)
+examples:
+	@echo "Building example clients with tag 'examples'..."
+	@cd examples/stdio-client && go build -tags=examples -o test-stdio .
+	@cd examples/http-client && go build -tags=examples -o test-http .
+	@echo "Built example binaries:"
+	@ls -lh examples/stdio-client/test-stdio examples/http-client/test-http
 
 # Build for multiple platforms
 build-all-platforms: clean
@@ -72,16 +80,9 @@ deps:
 	go mod download
 	go mod tidy
 
-# Test the server (builds and runs test client)
-test: build
-	@echo "Starting server in background..."
-	@./$(BINARY_NAME) &
-	@SERVER_PID=$$!; \
-	sleep 2; \
-	echo "Running test client..."; \
-	cd examples && go run test-client.go; \
-	echo "Stopping server..."; \
-	kill $$SERVER_PID
+# Test the server (unit tests)
+test:
+	go test -v ./...
 
 # Development mode with hot reload (requires air)
 dev:
@@ -163,12 +164,13 @@ help:
 	@echo "  run                  - Run the server directly"
 	@echo "  clean                - Clean build artifacts"
 	@echo "  deps                 - Download and tidy dependencies"
-	@echo "  test                 - Build and test with test client"
+	@echo "  test                 - Run unit tests"
 	@echo "  dev                  - Run in development mode with hot reload"
 	@echo "  fmt                  - Format Go code"
 	@echo "  vet                  - Run go vet"
 	@echo "  lint                 - Run golangci-lint"
 	@echo "  install-tools        - Install development tools"
+	@echo "  examples             - Build example client binaries (with tag 'examples')"
 	@echo "  version              - Show version information"
 	@echo ""
 	@echo "Tabnine MCP targets:"

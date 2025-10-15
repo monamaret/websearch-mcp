@@ -1,3 +1,6 @@
+//go:build examples
+// +build examples
+
 package main
 
 import (
@@ -21,7 +24,7 @@ type MCPMessage struct {
 
 func main() {
 	// Start the MCP server in stdio mode
-	cmd := exec.Command("../websearch-mcp", "--stdio")
+	cmd := exec.Command("../../websearch-mcp", "--stdio")
 
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
