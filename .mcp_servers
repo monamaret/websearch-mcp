@@ -3,9 +3,7 @@
     "websearch": {
       "command": "./websearch-mcp",
       "args": [],
-      "env": {
-        "PORT": "8080"
-      }
+      "env": {}
     }
   }
 }

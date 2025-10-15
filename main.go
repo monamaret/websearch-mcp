@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -16,7 +18,6 @@ import (
 	"time"
 
 	"github.com/PuerkitoBio/goquery"
-	"github.com/gorilla/websocket"
 )
 
 // Build-time variables (set via ldflags)
@@ -167,60 +168,17 @@ type SearchResponse struct {
 
 // WebSearchServer implements the MCP server
 type WebSearchServer struct {
-	upgrader websocket.Upgrader
-	stats    *ServerStats
+	stats  *ServerStats
+	logger *log.Logger
 }
 
 func NewWebSearchServer() *WebSearchServer {
 	return &WebSearchServer{
-		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins for MCP
-			},
-		},
 		stats: &ServerStats{
 			StartTime: time.Now(),
 		},
+		logger: log.New(os.Stderr, "[MCP] ", log.LstdFlags),
 	}
-}
-
-func (s *WebSearchServer) handleConnection(w http.ResponseWriter, r *http.Request) {
-	s.stats.IncrementConnections()
-	defer s.stats.DecrementActiveConnections()
-
-	conn, err := s.upgrader.Upgrade(w, r, nil)
-	if err != nil {
-		log.Printf("Failed to upgrade connection: %v", err)
-		s.stats.IncrementErrors()
-		return
-	}
-	defer conn.Close()
-
-	log.Println("New MCP client connected")
-
-	for {
-		var msg MCPMessage
-		err := conn.ReadJSON(&msg)
-		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				log.Printf("WebSocket error: %v", err)
-			}
-			s.stats.IncrementErrors()
-			break
-		}
-
-		s.stats.IncrementRequests()
-		response := s.handleMessage(msg)
-		if response != nil {
-			if err := conn.WriteJSON(response); err != nil {
-				log.Printf("Failed to send response: %v", err)
-				s.stats.IncrementErrors()
-				break
-			}
-		}
-	}
-
-	log.Println("Client disconnected")
 }
 
 func (s *WebSearchServer) handleMessage(msg MCPMessage) *MCPMessage {
@@ -434,12 +392,12 @@ func (s *WebSearchServer) performWebSearch(query string, maxResults int) (*Searc
 	var results []SearchResult
 	rank := 1
 
-	doc.Find(".result").Each(func(i int, s *goquery.Selection) {
+	doc.Find(".result").Each(func(i int, sel *goquery.Selection) {
 		if rank > maxResults {
 			return
 		}
 
-		titleLink := s.Find(".result__title a")
+		titleLink := sel.Find(".result__title a")
 		title := strings.TrimSpace(titleLink.Text())
 		href, exists := titleLink.Attr("href")
 
@@ -452,7 +410,7 @@ func (s *WebSearchServer) performWebSearch(query string, maxResults int) (*Searc
 			return // Skip these redirect URLs
 		}
 
-		description := strings.TrimSpace(s.Find(".result__snippet").Text())
+		description := strings.TrimSpace(sel.Find(".result__snippet").Text())
 
 		results = append(results, SearchResult{
 			Title:       title,
@@ -507,10 +465,52 @@ func (s *WebSearchServer) handleGetStats(msg MCPMessage) *MCPMessage {
 	}
 }
 
-func main() {
-	server := NewWebSearchServer()
+// Run stdio mode - communicate via standard input/output
+func (s *WebSearchServer) runStdio() error {
+	s.logger.Println("Starting MCP server in stdio mode")
 
-	http.HandleFunc("/", server.handleConnection)
+	reader := bufio.NewReader(os.Stdin)
+	encoder := json.NewEncoder(os.Stdout)
+
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			if err == io.EOF {
+				s.logger.Println("Received EOF, shutting down")
+				return nil
+			}
+			return fmt.Errorf("error reading from stdin: %w", err)
+		}
+
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		var msg MCPMessage
+		if err := json.Unmarshal([]byte(line), &msg); err != nil {
+			s.logger.Printf("Error unmarshaling message: %v", err)
+			s.stats.IncrementErrors()
+			continue
+		}
+
+		s.stats.IncrementRequests()
+		response := s.handleMessage(msg)
+
+		if response != nil {
+			if err := encoder.Encode(response); err != nil {
+				s.logger.Printf("Error encoding response: %v", err)
+				s.stats.IncrementErrors()
+				return fmt.Errorf("error writing to stdout: %w", err)
+			}
+		}
+	}
+}
+
+// Run HTTP mode (for backward compatibility and testing)
+func (s *WebSearchServer) runHTTP(port string) error {
+	s.logger.Printf("Starting MCP server in HTTP mode on port %s", port)
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
@@ -531,18 +531,13 @@ func main() {
 
 	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(server.stats.GetStats())
+		json.NewEncoder(w).Encode(s.stats.GetStats())
 	})
 
 	http.HandleFunc("/version", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(getVersionInfo())
 	})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
 
 	srv := &http.Server{
 		Addr:         ":" + port,
@@ -557,24 +552,88 @@ func main() {
 		signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 		<-c
 
-		log.Println("Shutting down server...")
+		s.logger.Println("Shutting down server...")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := srv.Shutdown(ctx); err != nil {
-			log.Printf("Server shutdown error: %v", err)
+			s.logger.Printf("Server shutdown error: %v", err)
 		}
 	}()
 
-	log.Printf("WebSearch MCP Server starting on port %s", port)
-	log.Printf("WebSocket endpoint: ws://localhost:%s/", port)
-	log.Printf("Health endpoint: http://localhost:%s/health", port)
-	log.Printf("Stats endpoint: http://localhost:%s/stats", port)
-	log.Printf("Version endpoint: http://localhost:%s/version", port)
+	s.logger.Printf("Health endpoint: http://localhost:%s/health", port)
+	s.logger.Printf("Stats endpoint: http://localhost:%s/stats", port)
+	s.logger.Printf("Version endpoint: http://localhost:%s/version", port)
 
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Server failed to start: %v", err)
+		return fmt.Errorf("server failed to start: %w", err)
 	}
 
-	log.Println("Server stopped")
+	s.logger.Println("Server stopped")
+	return nil
+}
+
+func main() {
+	server := NewWebSearchServer()
+
+	// Check if we should run in HTTP mode (for backward compatibility)
+	// If PORT environment variable is set or --http flag is provided, run in HTTP mode
+	// Otherwise, run in stdio mode (default for MCP)
+	mode := os.Getenv("MCP_MODE")
+	port := os.Getenv("PORT")
+
+	// Check for command line arguments
+	for i, arg := range os.Args {
+		if arg == "--http" {
+			mode = "http"
+			if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "--") {
+				port = os.Args[i+1]
+			}
+		} else if arg == "--stdio" {
+			mode = "stdio"
+		} else if arg == "--version" || arg == "-v" {
+			versionInfo := getVersionInfo()
+			fmt.Printf("websearch-mcp version %s\n", versionInfo.Version)
+			fmt.Printf("  Build Time: %s\n", versionInfo.BuildTime)
+			fmt.Printf("  Git Commit: %s\n", versionInfo.GitCommit)
+			fmt.Printf("  Go Version: %s\n", versionInfo.GoVersion)
+			fmt.Printf("  OS/Arch: %s/%s\n", versionInfo.OS, versionInfo.Arch)
+			return
+		} else if arg == "--help" || arg == "-h" {
+			fmt.Println("WebSearch MCP Server")
+			fmt.Println()
+			fmt.Println("Usage:")
+			fmt.Println("  websearch-mcp [options]")
+			fmt.Println()
+			fmt.Println("Options:")
+			fmt.Println("  --stdio           Run in stdio mode (default)")
+			fmt.Println("  --http [port]     Run in HTTP mode on specified port (default: 8080)")
+			fmt.Println("  --version, -v     Show version information")
+			fmt.Println("  --help, -h        Show this help message")
+			fmt.Println()
+			fmt.Println("Environment Variables:")
+			fmt.Println("  MCP_MODE          Set to 'http' or 'stdio' (default: stdio)")
+			fmt.Println("  PORT              Port for HTTP mode (default: 8080)")
+			return
+		}
+	}
+
+	// Default to stdio mode if not specified
+	if mode == "" {
+		mode = "stdio"
+	}
+
+	var err error
+	if mode == "http" {
+		if port == "" {
+			port = "8080"
+		}
+		err = server.runHTTP(port)
+	} else {
+		err = server.runStdio()
+	}
+
+	if err != nil {
+		server.logger.Fatalf("Server error: %v", err)
+	}
 }

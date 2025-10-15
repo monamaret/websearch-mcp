@@ -33,13 +33,13 @@ Create a `.mcp_servers` file in your project root directory:
     "websearch": {
       "command": "./websearch-mcp",
       "args": [],
-      "env": {
-        "PORT": "8080"
-      }
+      "env": {}
     }
   }
 }
 ```
+
+**Note**: The server now runs in stdio mode by default, communicating directly with Tabnine via standard input/output. No HTTP server is started unless explicitly requested.
 
 ### Step 3: Test the Integration
 
@@ -55,9 +55,39 @@ Create a `.mcp_servers` file in your project root directory:
 
 ## 📋 Configuration Options
 
-### Basic Configuration
+### Basic Configuration (Stdio Mode - Recommended)
 
-The minimal configuration for the websearch MCP server:
+The minimal configuration for the websearch MCP server uses stdio mode:
+
+```json
+{
+  "mcpServers": {
+    "websearch": {
+      "command": "./websearch-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
+```
+
+### HTTP Mode (For Testing/Development)
+
+If you need to run the server in HTTP mode for testing or debugging:
+
+```json
+{
+  "mcpServers": {
+    "websearch": {
+      "command": "./websearch-mcp",
+      "args": ["--http", "8080"],
+      "env": {}
+    }
+  }
+}
+```
+
+Or use environment variables:
 
 ```json
 {
@@ -66,6 +96,7 @@ The minimal configuration for the websearch MCP server:
       "command": "./websearch-mcp",
       "args": [],
       "env": {
+        "MCP_MODE": "http",
         "PORT": "8080"
       }
     }
@@ -75,7 +106,7 @@ The minimal configuration for the websearch MCP server:
 
 ### Advanced Configuration
 
-For production environments with custom settings:
+For production environments with absolute paths:
 
 ```json
 {
@@ -83,11 +114,7 @@ For production environments with custom settings:
     "websearch": {
       "command": "/usr/local/bin/websearch-mcp",
       "args": [],
-      "env": {
-        "PORT": "${WEBSEARCH_PORT:-8080}",
-        "LOG_LEVEL": "${LOG_LEVEL:-info}",
-        "TIMEOUT": "${REQUEST_TIMEOUT:-30}"
-      }
+      "env": {}
     }
   }
 }
@@ -106,8 +133,6 @@ If you prefer to run the server in Docker:
         "run",
         "-i",
         "--rm",
-        "-p", "8080:8080",
-        "-e", "PORT=8080",
         "websearch-mcp:latest"
       ],
       "env": {}
@@ -120,14 +145,15 @@ If you prefer to run the server in Docker:
 
 ### Development Setup
 
-For local development with hot reload:
+For local development:
 
 ```bash
-# Terminal 1: Start the MCP server
-make dev
+# Build the server
+make build
 
-# Terminal 2: Test with Tabnine Agent
-# Your agent can now perform web searches
+# The server will run in stdio mode when called by Tabnine
+# For manual testing in HTTP mode:
+./websearch-mcp --http 8080
 ```
 
 ### Production Deployment
@@ -137,7 +163,7 @@ make dev
    CGO_ENABLED=0 go build -ldflags="-w -s" -o websearch-mcp .
    ```
 
-2. **Install as system service:**
+2. **Install as system binary:**
    ```bash
    sudo cp websearch-mcp /usr/local/bin/websearch-mcp
    sudo chmod +x /usr/local/bin/websearch-mcp
@@ -150,47 +176,11 @@ make dev
        "websearch": {
          "command": "/usr/local/bin/websearch-mcp",
          "args": [],
-         "env": {
-           "PORT": "8080"
-         }
+         "env": {}
        }
      }
    }
    ```
-
-### Multi-Tool Setup
-
-Combine websearch with other MCP tools:
-
-```json
-{
-  "mcpServers": {
-    "websearch": {
-      "command": "./websearch-mcp",
-      "args": [],
-      "env": {
-        "PORT": "8080"
-      }
-    },
-    "filesystem": {
-      "command": "npx",
-      "args": [
-        "@modelcontextprotocol/server-filesystem",
-        "/path/to/your/project"
-      ],
-      "env": {}
-    },
-    "git": {
-      "command": "npx",
-      "args": [
-        "@modelcontextprotocol/server-git",
-        "/path/to/your/git/repo"
-      ],
-      "env": {}
-    }
-  }
-}
-```
 
 ## 🎯 Usage Examples
 

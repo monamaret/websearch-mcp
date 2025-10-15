@@ -7,8 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/gorilla/websocket"
 )
 
 func TestWebSearchServer_Initialize(t *testing.T) {
@@ -231,54 +229,5 @@ func TestHealthEndpoint(t *testing.T) {
 	}
 }
 
-// Integration test for WebSocket connection
-func TestWebSocketConnection(t *testing.T) {
-	server := NewWebSearchServer()
-
-	// Create test server
-	s := httptest.NewServer(http.HandlerFunc(server.handleConnection))
-	defer s.Close()
-
-	// Convert http://127.0.0.1 to ws://127.0.0.1
-	u := "ws" + strings.TrimPrefix(s.URL, "http")
-
-	// Connect to the server
-	ws, _, err := websocket.DefaultDialer.Dial(u, nil)
-	if err != nil {
-		t.Fatalf("Failed to connect: %v", err)
-	}
-	defer ws.Close()
-
-	// Send initialize message
-	initMsg := MCPMessage{
-		JSONRPC: "2.0",
-		ID:      1,
-		Method:  "initialize",
-		Params: map[string]interface{}{
-			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]interface{}{},
-			"clientInfo": map[string]interface{}{
-				"name":    "test-client",
-				"version": "1.0.0",
-			},
-		},
-	}
-
-	if err := ws.WriteJSON(initMsg); err != nil {
-		t.Fatalf("Failed to send message: %v", err)
-	}
-
-	// Read response
-	var response MCPMessage
-	if err := ws.ReadJSON(&response); err != nil {
-		t.Fatalf("Failed to read response: %v", err)
-	}
-
-	if response.Error != nil {
-		t.Fatalf("Received error: %v", response.Error)
-	}
-
-	if response.Result == nil {
-		t.Fatal("Expected result, got nil")
-	}
-}
+// Note: WebSocket integration tests removed as stdio is now the default mode
+// HTTP mode is still available for testing via --http flag
